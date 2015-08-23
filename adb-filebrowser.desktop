@@ -1,0 +1,6 @@
+[Desktop Entry]
+Icon=multimedia-player
+Name=ADB File Access
+Open=false
+Type=Link
+URL=adb:/

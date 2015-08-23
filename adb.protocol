@@ -1,0 +1,19 @@
+[Protocol]
+DocPath=kioslave/kio_adb.html
+exec=kio_adb
+input=none
+# listing=Name,Type,Size,Date,AccessDate,Access,Owner,Group,Link,MimeType
+listing=Name,Type,Size
+output=filesystem
+protocol=adb
+reading=true
+writing=true
+makedir=true
+deleting=true
+moving=true
+opening=true
+linking=true
+copyToFile=true
+copyFromFile=true
+maxInstances=1
+Icon=network-workgroup
