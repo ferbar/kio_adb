@@ -12,6 +12,8 @@
 
 using namespace KIO;
 
+const char *LS_DATEFORMAT="%Y-%m-%d %H:%M:%S";
+
 // https://techbase.kde.org/Development/Tutorials/KIO_Slaves/Adb_World
 // http://api.kde.org/4.10-api/kdelibs-apidocs/kioslave/html/index.html
 // http://api.kde.org/4.0-api/kdepimlibs-apidocs/ - ein bissl was zum kioslave
@@ -106,16 +108,17 @@ void Adb::stat( const KUrl& url )
 	qDebug() << "-------------------------- ls -la " << (url.path()+"") << " rc=" << rc << " -------------------";
 	QStringList fileLines = QString(read_stdout).split("\n");
 	UDSEntry entry;
-		QString perm, owner, group, size, date, filename;
-		this->splitLsLine(fileLines[0], perm, owner, group, size, date, filename);
+	QString perm, owner, group, size, filename;
+	time_t mtime;
+	this->splitLsLine(fileLines[0], perm, owner, group, size, mtime, filename);
 
-		// this->error( ERR_CANNOT_ENTER_DIRECTORY, path);
-		entry.insert( KIO::UDSEntry::UDS_NAME, fileLines[0] );
-		entry.insert( KIO::UDSEntry::UDS_SIZE, size.toInt() );
-		// entry.insert( KIO::UDSEntry::UDS_MODIFICATION_TIME, 123456789 );
-		// entry.insert( KIO::UDSEntry::UDS_ACCESS, 0664 );
-		// entry.insert( KIO::UDSEntry::UDS_USER, 1000 );
-		// entry.insert( KIO::UDSEntry::UDS_GROUP, 1000 );
+	// this->error( ERR_CANNOT_ENTER_DIRECTORY, path);
+	entry.insert( KIO::UDSEntry::UDS_NAME, fileLines[0] );
+	entry.insert( KIO::UDSEntry::UDS_SIZE, size.toInt() );
+	entry.insert( KIO::UDSEntry::UDS_MODIFICATION_TIME, mtime );
+	// entry.insert( KIO::UDSEntry::UDS_ACCESS, 0664 );
+	// entry.insert( KIO::UDSEntry::UDS_USER, 1000 );
+	// entry.insert( KIO::UDSEntry::UDS_GROUP, 1000 );
 	// entry.insert ( UDSEntry::UDS_NAME, QLatin1String ( "Adb:///" ) );
 	if(perm[0] == 'd') {
 		qDebug() << "directory";
@@ -171,16 +174,23 @@ int Adb::exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray 
 	return myProcess->exitCode();
 }
 
-void Adb::splitLsLine(QString line, QString &perm, QString &owner, QString &group, QString &size, QString &date, QString &filename){
-	QString date2;
+void Adb::splitLsLine(QString line, QString &perm, QString &owner, QString &group, QString &size, time_t &mtime, QString &filename){
+	QString sdate, sdate2;
 	QTextStream stream(&line);
 	stream >> perm >> owner >> group;
 	if(perm[0] == '-') { // dir oder link ham keine size!
 		stream >> size;
 	}
-	stream >> date >> date2 >> filename;
+	stream >> sdate >> sdate2 >> filename;
+
+	sdate.append(" ").append(sdate2);
+	struct tm tm;
+	memset(&tm, 0, sizeof(struct tm));
+	strptime(sdate.toAscii(), LS_DATEFORMAT, &tm);
+	mtime=mktime(&tm);
+	
 	qDebug() << ">>>>>>>>>>>>>" << line << "<<<< perm:[" << perm << "] owner:[" << owner << "] group:[" << group << "]" <<
-		" size:[" << size << "] date1:[" << date << "] date2:[" << date2 << "] filename:[" << filename << "]";
+		" size:[" << size << "] date1:[" << sdate << "] date2:[" << sdate2 << "] mtime:[" << mtime << "] filename:[" << filename << "]";
 }
 
 void Adb::listDir( const KUrl &url )
@@ -227,8 +237,9 @@ void Adb::listDir( const KUrl &url )
 			lineFull.truncate(lineFull.size() - 1);
 		}
 
-		QString perm, owner, group, size, date, filename;
-		this->splitLsLine(lineFull, perm, owner, group, size, date, filename);
+		QString perm, owner, group, size, filename;
+		time_t mtime;
+		this->splitLsLine(lineFull, perm, owner, group, size, mtime, filename);
 
 		if(perm[0] == 'd') {
 			// entry.insert ( UDSEntry::UDS_ICON_NAME, QLatin1String ( "drive-removable-media" ) );
@@ -242,7 +253,7 @@ void Adb::listDir( const KUrl &url )
 		// this->error( ERR_CANNOT_ENTER_DIRECTORY, path);
 		entry.insert( KIO::UDSEntry::UDS_NAME, line );
 		entry.insert( KIO::UDSEntry::UDS_SIZE, size.toInt() );
-		entry.insert( KIO::UDSEntry::UDS_MODIFICATION_TIME, 123456789 );
+		entry.insert( KIO::UDSEntry::UDS_MODIFICATION_TIME, mtime );
 		entry.insert( KIO::UDSEntry::UDS_ACCESS, 0664 );
 		entry.insert( KIO::UDSEntry::UDS_USER, 1000 );
 		entry.insert( KIO::UDSEntry::UDS_GROUP, 1000 );
