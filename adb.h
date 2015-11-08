@@ -14,7 +14,7 @@ class Adb : public QObject, public KIO::SlaveBase
 	Q_OBJECT
 	private:
 		int exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray &read_stderr);
-		void splitLsLine(QString line, QString &perm, QString &owner, QString &group, QString &size, QString &date, QString &filename);
+		void splitLsLine(QString line, QString &perm, QString &owner, QString &group, QString &size, time_t &mtime, QString &filename);
 
 	public:
 		Adb( const QByteArray &pool, const QByteArray &app );
