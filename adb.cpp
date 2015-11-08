@@ -146,7 +146,9 @@ void Adb::stat( const KUrl& url )
 				entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
 			}
 		} else {
-			error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for "+lineFull);
+			qDebug() << "regex match failed for >>>"<<lineFull<< "<<<";
+			this->error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for "+lineFull+" [regex match failed]");
+			return;
 		}
 	} else {
 		qDebug() << "file";
@@ -251,6 +253,7 @@ void Adb::listDir( const KUrl &url )
 
 	// foreach (QString line, fileLines) {
 	for(int i = 0 ; i < fileLines.size(); i++ ) {
+		int mode=0664;
 		QString line=fileLines[i];
 		QString lineFull=fileLinesFull[i];
 		if(line.size() >= 1 && line[line.size() - 1] == '\r' ) {
@@ -261,14 +264,26 @@ void Adb::listDir( const KUrl &url )
 		}
 
 		QString perm, owner, group, size, filename;
-		time_t mtime;
+		time_t mtime=0;
 		this->splitLsLine(lineFull, perm, owner, group, size, mtime, filename);
 
 		if(perm[0] == 'd') {
 			// entry.insert ( UDSEntry::UDS_ICON_NAME, QLatin1String ( "drive-removable-media" ) );
 			entry.insert( UDSEntry::UDS_MIME_TYPE, QLatin1String ( "inode/directory" ) );
 			entry.insert( UDSEntry::UDS_FILE_TYPE, S_IFDIR );
-		} else if(perm[0] == 'l') { // FIXME: now kio crashes eventually ...
+		} else if(perm == "lstat") { // lstat './protect_f' failed: Permission denied  --- softlinks die wir als der aktuelle user nicht anschaun können
+			qDebug() << "lstat error ??? " << lstat << "";
+			QRegExp linkRegex("lstat '(.*)' failed: Permission denied");
+			if (linkRegex.indexIn(lineFull) > 0) {
+				QStringList list = linkRegex.capturedTexts();
+				QString link = list[1];
+				entry.insert( UDSEntry::UDS_LINK_DEST, link );
+				mtime=0;
+				mode=000;
+			} else {
+				qDebug() << "lstat error no regex match";
+			}
+		} else if(perm[0] == 'l' ) { // FIXME: now kio crashes eventually ...
 			QRegExp linkRegex("->\\s*(.*)\\s*$");
 			if (linkRegex.indexIn(lineFull) > 0) {
 				QStringList list = linkRegex.capturedTexts();
@@ -286,7 +301,9 @@ void Adb::listDir( const KUrl &url )
 					entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
 				}
 			} else {
-				this->error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for "+lineFull);
+				qDebug() << "regex match failed for >>>"<<lineFull<< "<<<";
+				this->error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for \""+lineFull+"\"");
+				return;
 			}
 		} else {
 			entry.insert( UDSEntry::UDS_FILE_TYPE, S_IFREG );
@@ -297,7 +314,7 @@ void Adb::listDir( const KUrl &url )
 		entry.insert( KIO::UDSEntry::UDS_NAME, line );
 		entry.insert( KIO::UDSEntry::UDS_SIZE, size.toInt() );
 		entry.insert( KIO::UDSEntry::UDS_MODIFICATION_TIME, mtime );
-		entry.insert( KIO::UDSEntry::UDS_ACCESS, 0664 );
+		entry.insert( KIO::UDSEntry::UDS_ACCESS, mode );
 		entry.insert( KIO::UDSEntry::UDS_USER, 1000 );
 		entry.insert( KIO::UDSEntry::UDS_GROUP, 1000 );
 
