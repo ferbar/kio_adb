@@ -1,7 +1,6 @@
-# kio_adb
-kio-slave ADB
+# kio slave ADB
 
-copy files from your android phone using the android debug bridge commands. 
+use dolphin to copy files from and to your android phone using the android debug bridge commands.
 
 ## setup
 
@@ -16,3 +15,11 @@ copy files from your android phone using the android debug bridge commands.
 
 * enter _adb:/// in the dolphin address bar
 * preview images: images bigger than 3MB wont display a preview image. Check it in the Dolphins settings.
+
+## TODO
+
+* usefull logging
+* usefull error messages
+* delete, mkdir, rename
+* Kaffeine support
+* root explorer
