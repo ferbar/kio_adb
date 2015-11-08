@@ -9,6 +9,7 @@
 #include <QCoreApplication>
 #include <QProcess>
 #include <QFileInfo>
+#include <QRegExp>
 
 using namespace KIO;
 
@@ -103,14 +104,15 @@ void Adb::stat( const KUrl& url )
 	arguments << path ; // FIXME: escape ?????
 	QByteArray read_stdout, read_stderr;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
-	qDebug() << "-------------------------- ls -la " << (url.path()+"") << " rc=" << rc << " -------------------";
+	qDebug() << "-------------------------- ls -la " << (path+"") << " rc=" << rc << " -------------------";
 	QStringList fileLines = QString(read_stdout).split("\n");
+	QString lineFull=fileLines[0];
 	UDSEntry entry;
 		QString perm, owner, group, size, date, filename;
-		this->splitLsLine(fileLines[0], perm, owner, group, size, date, filename);
+		this->splitLsLine(lineFull, perm, owner, group, size, date, filename);
 
 		// this->error( ERR_CANNOT_ENTER_DIRECTORY, path);
-		entry.insert( KIO::UDSEntry::UDS_NAME, fileLines[0] );
+		entry.insert( KIO::UDSEntry::UDS_NAME, lineFull );
 		entry.insert( KIO::UDSEntry::UDS_SIZE, size.toInt() );
 		// entry.insert( KIO::UDSEntry::UDS_MODIFICATION_TIME, 123456789 );
 		// entry.insert( KIO::UDSEntry::UDS_ACCESS, 0664 );
@@ -122,6 +124,27 @@ void Adb::stat( const KUrl& url )
 		entry.insert ( UDSEntry::UDS_FILE_TYPE, S_IFDIR );
 		entry.insert ( UDSEntry::UDS_MIME_TYPE, QLatin1String ( "inode/directory" ) );
 		entry.insert ( UDSEntry::UDS_ICON_NAME, QLatin1String ( "drive-removable-media" ) );
+	} else if(perm[0] == 'l') {
+		QRegExp linkRegex("->\\s*(.*)\\s*$");
+		if (linkRegex.indexIn(lineFull) > 0) {
+			QStringList list = linkRegex.capturedTexts();
+			// das sollt nur [2] sein FIXME error handling
+			QString link = list[1];
+			entry.insert( UDSEntry::UDS_LINK_DEST, link );
+			QStringList arguments;
+			arguments << "shell";
+			arguments << ( "[ -d " + link + " ] && echo -n true" ) ;
+			QByteArray read_stdout, read_stderr;
+			rc=this->exec(arguments, read_stdout, read_stderr);
+			qDebug() << "link \n["+link+"]";
+			qDebug() << "check sagt: " << read_stdout << "\n" << read_stderr;
+			if(read_stdout == "true") {
+				qDebug() << "softlink isDirectory";
+				entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
+			}
+		} else {
+			error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for "+lineFull);
+		}
 	} else {
 		qDebug() << "file";
 		entry.insert ( UDSEntry::UDS_FILE_TYPE, S_IFREG);
@@ -232,11 +255,31 @@ void Adb::listDir( const KUrl &url )
 
 		if(perm[0] == 'd') {
 			// entry.insert ( UDSEntry::UDS_ICON_NAME, QLatin1String ( "drive-removable-media" ) );
-			entry.insert ( UDSEntry::UDS_MIME_TYPE, QLatin1String ( "inode/directory" ) );
-			entry.insert ( UDSEntry::UDS_FILE_TYPE, S_IFDIR );
+			entry.insert( UDSEntry::UDS_MIME_TYPE, QLatin1String ( "inode/directory" ) );
+			entry.insert( UDSEntry::UDS_FILE_TYPE, S_IFDIR );
+		} else if(perm[0] == 'l') { // FIXME: now kio crashes eventually ...
+			QRegExp linkRegex("->\\s*(.*)\\s*$");
+			if (linkRegex.indexIn(lineFull) > 0) {
+				QStringList list = linkRegex.capturedTexts();
+				// das sollt nur [2] sein FIXME error handling
+				QString link = list[1];
+				entry.insert( UDSEntry::UDS_LINK_DEST, link );
+				QStringList arguments;
+				arguments << "shell";
+				arguments << ( "[ -d " + link + " ] && echo -n true" ) ;
+				QByteArray read_stdout, read_stderr;
+				rc=this->exec(arguments, read_stdout, read_stderr);
+				qDebug() << "link ["+link+"] check sagt:\n " << read_stdout << "\n" << read_stderr;
+				if(read_stdout == "true") {
+					qDebug() << "listDir - symlink is directoy";
+					entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
+				}
+			} else {
+				this->error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for "+lineFull);
+			}
 		} else {
-			 entry.insert ( UDSEntry::UDS_FILE_TYPE, S_IFREG );
-			 // entry.insert ( UDSEntry::UDS_MIME_TYPE, getMimetype( file->filetype ) );
+			entry.insert( UDSEntry::UDS_FILE_TYPE, S_IFREG );
+			// entry.insert ( UDSEntry::UDS_MIME_TYPE, getMimetype( file->filetype ) );
 		}
 
 		// this->error( ERR_CANNOT_ENTER_DIRECTORY, path);
