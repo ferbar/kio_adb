@@ -15,11 +15,18 @@ using namespace KIO;
 
 const char *LS_DATEFORMAT="%Y-%m-%d %H:%M:%S";
 
+// ls - string parserei - super!
+// FIXME: der string da oben wird wohl bei jedem android device anders sein ...
+const char *opendir_failed="opendir failed, Permission denied";
+const char *no_such_file_or_directory="No such file or directory";
+
 // https://techbase.kde.org/Development/Tutorials/KIO_Slaves/Adb_World
 // http://api.kde.org/4.10-api/kdelibs-apidocs/kioslave/html/index.html
 // http://api.kde.org/4.0-api/kdepimlibs-apidocs/ - ein bissl was zum kioslave
+// für die error codes: http://api.kde.org/4.0-api/kdelibs-apidocs/kio/html/namespaceKIO.html
 // https://techbase.kde.org/Development/Tutorials/Debugging/Debugging_IOSlaves
 // http://www.linuxtopia.org/online_books/linux_desktop_guides/kde_desktop_user_guide/kdebugdialog.html
+// 5er api: http://api.kde.org/frameworks-api/frameworks5-apidocs/kio/html/classKIO_1_1SlaveBase.html#a1e50004d94e4e7044325fdeb49cf488d
 /**
 
 export KDE_COLOR_DEBUG=1
@@ -36,9 +43,9 @@ extern "C" int KDE_EXPORT kdemain( int argc, char **argv )
 {
 	kDebug(7000) << "Entering function";
 	KComponentData instance( "kio_Adb" );
-	kWarning(7006) << "Warning";
-	kError(7000) << "Error";
-	qDebug() << "***********************";
+	kWarning(7006) << "test Warning";
+	kError(7000) << "test Error";
+	qDebug() << "test debug ***********************";
 
 	KGlobal::locale();
 
@@ -71,12 +78,16 @@ void Adb::get( const KUrl &url )
 	*/
 
 	QStringList arguments;
+
 	arguments << "shell";
+	QString path=this->fillArguments(url.path(), arguments);
+	// FIXME: beim cat werden alle \n in \r\n umgewandelt -> binary files hin
+	// siehe: https://code.google.com/p/android/issues/detail?id=2482
 	arguments << "cat";
-	arguments << url.path() ; // FIXME: escape ?????
+	arguments << path ; // FIXME: escape ?????
 	QByteArray read_stdout, read_stderr;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
-	qDebug() << "-------------------------- cat " << url.fileName() << " rc=" << rc << " -------------------";
+	qDebug() << "-------------------------- cat " << path << " rc=" << rc << " -------------------";
 	this->data(read_stdout);
 	this->finished();
 	qDebug() << "Leaving function";
@@ -84,38 +95,63 @@ void Adb::get( const KUrl &url )
 
 void Adb::put ( const KUrl& url, int, JobFlags flags )
 {
-	qDebug() << "Entering function put(" << url.fileName() << ",," << flags << ")";
+	qDebug() << "Entering function Adb::put(" << url.fileName() << ",," << flags << ")";
+	error ( ERR_UNSUPPORTED_ACTION, "not yet implemented");
 }
 
 void Adb::mimetype( const KUrl& url )
 {
-	qDebug() << "Entering function mimetype(" << url.fileName() << ")";
+	qDebug() << "Entering function adb::mimetype(" << url.fileName() << ")";
+	error ( ERR_UNSUPPORTED_ACTION, "not yet implemented");
+}
+
+QString Adb::removeNewline(QString &line) {
+	if(line.size() >= 1 && line[line.size() - 1] == '\r' ) {
+		// substring(size - 1 characters
+		return line.left(line.size() - 1);
+	} else {
+		return line;
+	}
+}
+
+QString Adb::fillArguments(QString fullPath, QStringList &arguments) {
+	if(fullPath.startsWith("/su")) {
+		arguments << "su";
+		arguments << "-c";
+		fullPath=fullPath.mid(3); // mid => substr !!!!
+	}
+	if(fullPath.size()==0) {
+		fullPath="/";
+	}
+	return fullPath;
 }
 
 void Adb::stat( const KUrl& url )
 {
-	qDebug() << "Entering function stat(" << url.path() << ")";
+	qDebug() << "Entering function adb::stat(" << url.path() << ")";
 	QStringList arguments;
 	arguments << "shell";
+	QString path=this->fillArguments(url.path(), arguments);
 	arguments << "ls";
 	arguments << "-la"; // hidden files
-	QString path=url.path();
-	if(path.size()==0) {
-		path="/";
-	}
 	arguments << path ; // FIXME: escape ?????
 	QByteArray read_stdout, read_stderr;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
 	qDebug() << "-------------------------- ls -la " << (path+"") << " rc=" << rc << " -------------------";
 	QStringList fileLines = QString(read_stdout).split("\n");
-	QString lineFull=fileLines[0];
+	QString lineFull=this->removeNewline(fileLines[0]);
+	if(fileLines[0].trimmed() == opendir_failed) {
+		// FIXME: der string da oben wird wohl bei jedem android device anders sein ...
+		this->error(ERR_ACCESS_DENIED, "error entering directory \""+url.path()+"\"");
+		return;
+	}
 	UDSEntry entry;
 	QString perm, owner, group, size, filename;
 	time_t mtime;
 	this->splitLsLine(lineFull, perm, owner, group, size, mtime, filename);
 
 	// this->error( ERR_CANNOT_ENTER_DIRECTORY, path);
-	entry.insert( KIO::UDSEntry::UDS_NAME, fileLines[0] );
+	entry.insert( KIO::UDSEntry::UDS_NAME, filename );
 	entry.insert( KIO::UDSEntry::UDS_SIZE, size.toInt() );
 	entry.insert( KIO::UDSEntry::UDS_MODIFICATION_TIME, mtime );
 	// entry.insert( KIO::UDSEntry::UDS_ACCESS, 0664 );
@@ -128,7 +164,7 @@ void Adb::stat( const KUrl& url )
 		entry.insert ( UDSEntry::UDS_MIME_TYPE, QLatin1String ( "inode/directory" ) );
 		entry.insert ( UDSEntry::UDS_ICON_NAME, QLatin1String ( "drive-removable-media" ) );
 	} else if(perm[0] == 'l') {
-		QRegExp linkRegex("->\\s*(.*)\\s*$");
+		QRegExp linkRegex("->\\s*(.*)\\s*$",Qt::CaseSensitive,QRegExp::RegExp2);
 		if (linkRegex.indexIn(lineFull) > 0) {
 			QStringList list = linkRegex.capturedTexts();
 			// das sollt nur [2] sein FIXME error handling
@@ -139,12 +175,15 @@ void Adb::stat( const KUrl& url )
 			arguments << ( "[ -d " + link + " ] && echo -n true" ) ;
 			QByteArray read_stdout, read_stderr;
 			rc=this->exec(arguments, read_stdout, read_stderr);
-			qDebug() << "link \n["+link+"]";
+			qDebug() << "link: ["+link+"]";
 			qDebug() << "check sagt: " << read_stdout << "\n" << read_stderr;
 			if(read_stdout == "true") {
 				qDebug() << "softlink isDirectory";
 				entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
 			}
+			// FIXME: sollt ma da 
+			// void SlaveBase::redirection	(	const QUrl & 	_url	)	
+			// aufrufen???
 		} else {
 			qDebug() << "regex match failed for >>>"<<lineFull<< "<<<";
 			this->error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for "+lineFull+" [regex match failed]");
@@ -220,20 +259,26 @@ void Adb::splitLsLine(QString line, QString &perm, QString &owner, QString &grou
 
 void Adb::listDir( const KUrl &url )
 {
-	qDebug() << "Entering function listDir(" << url.path() << " | " << url.fileName() << ")";
+	qDebug() << "Entering function Adb::listDir(" << url.path() << " | " << url.fileName() << ")";
 	// zuerst ein normales LS machen, dann hamma für jede datei den dateinamen
 	QStringList arguments;
 	arguments << "shell";
+	QString path=this->fillArguments(url.path(), arguments);
 	arguments << "ls";
-	arguments << "-a"; // hidden files
-	arguments << url.path() + "/" ; // FIXME: escape ?????
+	arguments << "-a"; int lsOptPos=arguments.count() -1;  // hidden files
+	arguments << path + "/" ; // FIXME: escape ?????
 	QByteArray read_stdout, read_stderr;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
 	qDebug() << "-------------------------- ls -a rc=" << rc << " -------------------";
 	QStringList fileLines = QString(read_stdout).split("\n");
+	qDebug() << "listDir first line: ["<<fileLines[0]<<"]";
+	if(fileLines[0].trimmed() == opendir_failed || fileLines[0].contains(no_such_file_or_directory)) {
+		this->error(ERR_ACCESS_DENIED, "error entering directory \""+path+"\" "+fileLines[0]);
+		return;
+	}
 	
 	// und jetzt das selbe noch einmal mit ls -la damit ma auch mod ham:
-	arguments.replace(2,"-la");
+	arguments.replace(lsOptPos,"-la");
 	rc=this->exec(arguments, read_stdout, read_stderr);
 	qDebug() << read_stdout;
 	qDebug() << "-------------------------- ls -l rc=" << rc << " -------------------";
@@ -242,7 +287,7 @@ void Adb::listDir( const KUrl &url )
 	if(fileLines.size() != fileLinesFull.size() ) {
 		qDebug() << "we have a problem now ...";
 		// FIXME: return error
-		this->finished();
+		this->error(ERR_ACCESS_DENIED, "internal error .... @\""+path+"\"");
 		return;
 	}
 
@@ -254,14 +299,8 @@ void Adb::listDir( const KUrl &url )
 	// foreach (QString line, fileLines) {
 	for(int i = 0 ; i < fileLines.size(); i++ ) {
 		int mode=0664;
-		QString line=fileLines[i];
-		QString lineFull=fileLinesFull[i];
-		if(line.size() >= 1 && line[line.size() - 1] == '\r' ) {
-			line.truncate(line.size() - 1);
-		}
-		if(lineFull.size() >= 1 && lineFull[lineFull.size() - 1] == '\r' ) {
-			lineFull.truncate(lineFull.size() - 1);
-		}
+		QString line=this->removeNewline(fileLines[i]);
+		QString lineFull=this->removeNewline(fileLinesFull[i]);
 
 		QString perm, owner, group, size, filename;
 		time_t mtime=0;
@@ -272,8 +311,8 @@ void Adb::listDir( const KUrl &url )
 			entry.insert( UDSEntry::UDS_MIME_TYPE, QLatin1String ( "inode/directory" ) );
 			entry.insert( UDSEntry::UDS_FILE_TYPE, S_IFDIR );
 		} else if(perm == "lstat") { // lstat './protect_f' failed: Permission denied  --- softlinks die wir als der aktuelle user nicht anschaun können
-			qDebug() << "lstat error ??? " << lstat << "";
-			QRegExp linkRegex("lstat '(.*)' failed: Permission denied");
+			qDebug() << "lstat error ??? " << perm << "";
+			QRegExp linkRegex("lstat '(.*)' failed: Permission denied",Qt::CaseSensitive,QRegExp::RegExp2);
 			if (linkRegex.indexIn(lineFull) > 0) {
 				QStringList list = linkRegex.capturedTexts();
 				QString link = list[1];
@@ -284,7 +323,7 @@ void Adb::listDir( const KUrl &url )
 				qDebug() << "lstat error no regex match";
 			}
 		} else if(perm[0] == 'l' ) { // FIXME: now kio crashes eventually ...
-			QRegExp linkRegex("->\\s*(.*)\\s*$");
+			QRegExp linkRegex("->\\s*(.*)\\s*$",Qt::CaseSensitive,QRegExp::RegExp2);
 			if (linkRegex.indexIn(lineFull) > 0) {
 				QStringList list = linkRegex.capturedTexts();
 				// das sollt nur [2] sein FIXME error handling
@@ -297,8 +336,9 @@ void Adb::listDir( const KUrl &url )
 				rc=this->exec(arguments, read_stdout, read_stderr);
 				qDebug() << "link ["+link+"] check sagt:\n " << read_stdout << "\n" << read_stderr;
 				if(read_stdout == "true") {
-					qDebug() << "listDir - symlink is directoy";
-					entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
+					qDebug() << "listDir - symlink is directoy"; // http://api.kde.org/4.x-api/kdelibs-apidocs/kioslave/html/ftp_8cpp_source.html das macht guessed_mume_type
+					// entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
+					entry.insert( KIO::UDSEntry::UDS_MIME_TYPE, QLatin1String("inode/directory"));
 				}
 			} else {
 				qDebug() << "regex match failed for >>>"<<lineFull<< "<<<";
@@ -332,6 +372,7 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 {
 	QStringList arguments;
 	int rc=1;
+	QByteArray read_stdout, read_stderr;
 	if( (src.protocol() == QLatin1String("adb") ) && dst.isLocalFile() ) {
 		qDebug() << "entering function Adb::copy from device(" << src.path() << " -> " << dst.path() << ")";
 		QFileInfo destination ( dst.path() );
@@ -344,14 +385,12 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 		arguments << "pull";
 		arguments << src.path() ; // FIXME: escape ?????
 		arguments << dst.path() ; // FIXME: escape ?????
-		QByteArray read_stdout, read_stderr;
 		rc=this->exec(arguments, read_stdout, read_stderr);
 	} else if(src.isLocalFile() && ( dst.protocol() == QLatin1String("adb") ) ) {
 		qDebug() << "entering function Adb::copy to device(" << src.path() << " -> " << dst.path() << ")";
 		arguments << "push";
 		arguments << src.path() ; // FIXME: escape ?????
 		arguments << dst.path() ; // FIXME: escape ?????
-		QByteArray read_stdout, read_stderr;
 		rc=this->exec(arguments, read_stdout, read_stderr);
 	} else {
 		 error ( ERR_UNSUPPORTED_ACTION, src.path() );
@@ -361,10 +400,11 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 		kError() << "error copying file";
 		// /usr/include/kio/global.h
 		// this->error(ERR_COULD_NOT_COPY, src.path());
-		this->error( KIO::ERR_COULD_NOT_WRITE, src.fileName() );
+		this->error( KIO::ERR_COULD_NOT_WRITE, src.fileName() + " " + read_stderr);
+		return;
+	} else {
+		this->finished();
 	}
-	
-	this->finished();
 }
 
 void Adb::special(QByteArray const&data)
@@ -376,17 +416,45 @@ void Adb::special(QByteArray const&data)
 void Adb::mkdir(KUrl const&url, int)
 {
 	qDebug() << "entering function Adb::mkdir()";
-	error ( ERR_COULD_NOT_MKDIR, url.path() );
+	error ( ERR_UNSUPPORTED_ACTION, url.path() );
+	// error ( ERR_COULD_NOT_MKDIR, url.path() );
 }
 
-void Adb::del(KUrl const&, bool)
+void Adb::del(KUrl const& file, bool)
 {
 	qDebug() << "entering function Adb::del()";
+	if(file.protocol() != QLatin1String("adb") ) {
+		qDebug() << " Adb::del invalid protocol";
+		this->error(ERR_UNSUPPORTED_PROTOCOL,"Adb::del invalid protocol");
+		return;
+	}
+
+	if(file.path().startsWith("/su")) {
+		qDebug() << " Adb::del don't delete files in su mode!";
+		this->error(ERR_ACCESS_DENIED,"don't delete files in su mode!");
+		return;
+	}
+
+	QStringList arguments;
+	arguments << "shell";
+	QString path=this->fillArguments(file.path(), arguments);
+	arguments << "rm";
+	arguments << path ; // FIXME: escape ?????
+	arguments << "|| echo error";
+	QByteArray read_stdout, read_stderr;
+	qDebug() << "Adb::del command: " << arguments;
+	int rc=this->exec(arguments, read_stdout, read_stderr);
+	if(rc != 0 || read_stdout.trimmed() != "") {
+		this->error(ERR_WRITE_ACCESS_DENIED , QString("rc:")+rc+" "+read_stdout.trimmed());
+	} else {
+		this->finished();
+	}
 }
 
-void Adb::rename(KUrl const&, KUrl const&, QFlags<KIO::JobFlag>)
+void Adb::rename(KUrl const& src, KUrl const&, QFlags<KIO::JobFlag>)
 {
 	qDebug() << "entering function Adb::rename()";
+	error ( ERR_UNSUPPORTED_ACTION, src.path() );
 }
 
 

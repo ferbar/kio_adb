@@ -16,6 +16,10 @@ class Adb : public QObject, public KIO::SlaveBase
 		int exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray &read_stderr);
 		void splitLsLine(QString line, QString &perm, QString &owner, QString &group, QString &size, time_t &mtime, QString &filename);
 
+		QString fillArguments(QString fullPath, QStringList &arguments);
+		QString removeNewline(QString &line);
+
+
 	public:
 		Adb( const QByteArray &pool, const QByteArray &app );
 		virtual ~Adb();
