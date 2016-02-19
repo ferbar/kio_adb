@@ -3,6 +3,7 @@
  
 #include <kio/global.h>
 #include <kio/slavebase.h>
+#include <QProcess>
 
 using namespace KIO;
 
@@ -14,6 +15,7 @@ class Adb : public QObject, public KIO::SlaveBase
 	Q_OBJECT
 	private:
 		int exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray &read_stderr);
+		QProcess *exec(const QStringList &arguments);
 		void splitLsLine(QString line, QString &perm, QString &owner, QString &group, QString &size, time_t &mtime, QString &filename);
 
 		QString fillArguments(QString fullPath, QStringList &arguments);

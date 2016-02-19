@@ -81,14 +81,35 @@ void Adb::get( const KUrl &url )
 
 	arguments << "shell";
 	QString path=this->fillArguments(url.path(), arguments);
-	// FIXME: beim cat werden alle \n in \r\n umgewandelt -> binary files hin
+	// 20160219: beim adb shell werden alle \n (und nur das \n) in \r\n umgewandelt -> binary files hin, replace \r\n -> \n funktioniert!
 	// siehe: https://code.google.com/p/android/issues/detail?id=2482
 	arguments << "cat";
 	arguments << path ; // FIXME: escape ?????
-	QByteArray read_stdout, read_stderr;
-	int rc=this->exec(arguments, read_stdout, read_stderr);
-	qDebug() << "-------------------------- cat " << path << " rc=" << rc << " -------------------";
-	this->data(read_stdout);
+	QProcess *myProcess=this->exec(arguments);
+	// connect(myProcess, SIGNAL(readyReadStandardOutput()), this, SLOT(processOutput()));  // connect process signals with your code
+	// connect(myProcess, SIGNAL(readyReadStandardError()), this, SLOT(processOutput()));  // same here
+	
+	QByteArray read_stdout;
+	char lastByte=0;
+	while(myProcess->waitForReadyRead()) {
+		read_stdout.clear();
+		if(lastByte=='\r') {
+			read_stdout.append("\r");
+			lastByte=0;
+		}
+	    read_stdout.append(myProcess->readAll());
+		read_stdout.replace("\r\n","\n");
+		if(read_stdout.endsWith("\r")) {
+			lastByte='\r';
+			read_stdout.chop(1);
+		}
+		this->data(read_stdout);
+		qDebug() << "-------------------------- cat " << path << " reading " << read_stdout.size() << "bytes -------------------";
+	}
+
+	int ret = myProcess->exitCode();
+	qDebug() << "-------------------------- cat " << path << " rc=" << ret << " -------------------";
+	delete(myProcess);
 	this->finished();
 	qDebug() << "Leaving function";
 }
@@ -218,25 +239,34 @@ void Adb::printError()
 
 /**
  *
+ * delete ned vergessen!
  */
-int Adb::exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray &read_stderr)
-{
+QProcess* Adb::exec(const QStringList &arguments) {
 	QString program = "adb";
 	QProcess *myProcess = new QProcess(this);
 	myProcess->start(program, arguments);
 	// connect (myProcess, SIGNAL(readyReadStandardOutput()), this, SLOT(printOutput()));
 	// connect (myProcess, SIGNAL(readyReadStandardError()), this, SLOT(printError()));
+	return myProcess;
+}
+
+int Adb::exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray &read_stderr) {
+	QProcess *myProcess = this->exec(arguments);
+	myProcess->closeWriteChannel();
 	bool rc = myProcess->waitForFinished();
 	if(!rc) {
 		qDebug() << "error waiting for adb";
 	}
-
 	read_stdout = myProcess->readAllStandardOutput();
 	read_stderr = myProcess->readAllStandardError();
+	read_stdout.replace("\r\n","\n");
 	// qDebug() << read_stdout;
 	// qDebug() << read_stderr;
-	return myProcess->exitCode();
+	int ret = myProcess->exitCode();
+	delete myProcess;
+	return ret;
 }
+
 
 void Adb::splitLsLine(QString line, QString &perm, QString &owner, QString &group, QString &size, time_t &mtime, QString &filename){
 	QString sdate, sdate2;
