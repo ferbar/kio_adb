@@ -13,6 +13,9 @@
 #include <QFileInfo>
 #include <QRegExp>
 
+// adb read timeout
+#define ADB_TIMEOUT 120
+
 using namespace KIO;
 
 const char *LS_DATEFORMAT="%Y-%m-%d %H:%M:%S";
@@ -296,9 +299,20 @@ QProcess* Adb::exec(const QStringList &arguments) {
 int Adb::exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray &read_stderr) {
 	QProcess *myProcess = this->exec(arguments);
 	myProcess->closeWriteChannel();
-	bool rc = myProcess->waitForFinished();
+	bool rc=false;
+	for(int i=0; i < ADB_TIMEOUT; i++) {
+		rc = myProcess->waitForFinished(10000); // 10s timeout
+		if(!rc) {
+			qDebug() << "Adb::exec waiting for adb-timeout ["<<i<<"]";
+		} else {
+			break;
+		}
+	}
 	if(!rc) {
-		qDebug() << "error waiting for adb";
+		qDebug() << "Adb::exec error waiting for adb-timeout";
+		read_stderr="error waiting for adb-timeout";
+		delete myProcess;
+		return -1;
 	}
 	read_stdout = myProcess->readAllStandardOutput();
 	read_stderr = myProcess->readAllStandardError();
@@ -457,6 +471,7 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 			return;
 		}
 
+		// TODO: pull -p und dann output für den progress lesen
 		arguments << "pull";
 		arguments << src.path() ; // FIXME: escape ?????
 		arguments << dst.path() ; // FIXME: escape ?????
