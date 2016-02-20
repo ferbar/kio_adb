@@ -57,6 +57,25 @@ extern "C" int KDE_EXPORT kdemain( int argc, char **argv )
 		exit( -1 );
 	}
 	fprintf(stderr,"kdemain() Adb:// " __DATE__ "\n");
+
+
+	// TODO: check if \r\n translation is necessary
+	QStringList arguments;
+
+	arguments << "eins 1";
+	arguments << "\"zwei 2\"";
+	arguments << "muh mäh drei 3";
+	QProcess *myProcess = new QProcess(NULL);
+	QString program = "/home/chris/tmp/test.sh";
+	myProcess->start(program, arguments);
+	      myProcess->closeWriteChannel();
+		        bool rc = myProcess->waitForFinished();
+
+	QString read_stdout = myProcess->readAllStandardOutput();
+	qDebug() << "christest: stdout: rc:"<<rc<<" [" << read_stdout << "]";
+	delete(myProcess);
+
+
 	Adb slave( argv[2], argv[3] );
 	slave.dispatchLoop();
 	return 0;
@@ -114,7 +133,7 @@ void Adb::get( const KUrl &url )
 	qDebug() << "Leaving function";
 }
 
-void Adb::put ( const KUrl& url, int, JobFlags flags )
+void Adb::put( const KUrl& url, int, JobFlags flags )
 {
 	qDebug() << "Entering function Adb::put(" << url.fileName() << ",," << flags << ")";
 	error ( ERR_UNSUPPORTED_ACTION, "not yet implemented");
@@ -244,6 +263,7 @@ void Adb::printError()
 QProcess* Adb::exec(const QStringList &arguments) {
 	QString program = "adb";
 	QProcess *myProcess = new QProcess(this);
+	qDebug() << "Adb::exec " << program << " " << arguments;
 	myProcess->start(program, arguments);
 	// connect (myProcess, SIGNAL(readyReadStandardOutput()), this, SLOT(printOutput()));
 	// connect (myProcess, SIGNAL(readyReadStandardError()), this, SLOT(printError()));
@@ -263,6 +283,7 @@ int Adb::exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray 
 	// qDebug() << read_stdout;
 	// qDebug() << read_stderr;
 	int ret = myProcess->exitCode();
+	qDebug() << "Adb::exec rc=" << ret;
 	delete myProcess;
 	return ret;
 }
@@ -404,6 +425,7 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 	int rc=1;
 	QByteArray read_stdout, read_stderr;
 	if( (src.protocol() == QLatin1String("adb") ) && dst.isLocalFile() ) {
+		// 20160220: adb pull filename "filename with whitespaces" is broken: saves the file to "filename". in the git version from 201507 this has been fixed
 		qDebug() << "entering function Adb::copy from device(" << src.path() << " -> " << dst.path() << ")";
 		QFileInfo destination ( dst.path() );
 		if ( !(flags & KIO::Overwrite) && destination.exists() )
@@ -416,6 +438,13 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 		arguments << src.path() ; // FIXME: escape ?????
 		arguments << dst.path() ; // FIXME: escape ?????
 		rc=this->exec(arguments, read_stdout, read_stderr);
+		qDebug() << "Adb::copy rc=" << rc << " stdout:" << read_stdout << " stderr:" << read_stderr;
+		destination.refresh();
+		if(! destination.exists() && destination.isFile()) {
+			qDebug() << "adb pull failed to copy file";
+			rc=1;
+		}
+
 	} else if(src.isLocalFile() && ( dst.protocol() == QLatin1String("adb") ) ) {
 		qDebug() << "entering function Adb::copy to device(" << src.path() << " -> " << dst.path() << ")";
 		arguments << "push";
