@@ -21,6 +21,8 @@ class Adb : public QObject, public KIO::SlaveBase
 		QString fillArguments(QString fullPath, QStringList &arguments);
 		QString removeNewline(QString &line);
 
+		UDSEntry getEntry( const KUrl& url );
+		UDSEntry getEntry( const QString& fullLine );
 
 	public:
 		Adb( const QByteArray &pool, const QByteArray &app );

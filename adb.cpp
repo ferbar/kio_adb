@@ -2,6 +2,8 @@
 #undef QT_NO_DEBUG
 #undef KDE_NO_DEBUG_OUTPUT
 #include "kdebug.h"
+#include <string.h>
+#include <errno.h>
 #include <KDebug>
 #undef QT_NO_DEBUG
 #include <kcomponentdata.h>
@@ -166,24 +168,11 @@ QString Adb::fillArguments(QString fullPath, QStringList &arguments) {
 	return fullPath;
 }
 
-void Adb::stat( const KUrl& url )
-{
-	qDebug() << "Entering function adb::stat(" << url.path() << ")";
-	QStringList arguments;
-	arguments << "shell";
-	QString path=this->fillArguments(url.path(), arguments);
-	arguments << "ls";
-	arguments << "-la"; // hidden files
-	arguments << path ; // FIXME: escape ?????
-	QByteArray read_stdout, read_stderr;
-	int rc=this->exec(arguments, read_stdout, read_stderr);
-	qDebug() << "-------------------------- ls -la " << (path+"") << " rc=" << rc << " -------------------";
-	QStringList fileLines = QString(read_stdout).split("\n");
-	QString lineFull=this->removeNewline(fileLines[0]);
-	if(fileLines[0].trimmed() == opendir_failed) {
+UDSEntry Adb::getEntry(const QString &lineFull) {
+	if(lineFull.trimmed() == opendir_failed) {
 		// FIXME: der string da oben wird wohl bei jedem android device anders sein ...
-		this->error(ERR_ACCESS_DENIED, "error entering directory \""+url.path()+"\"");
-		return;
+		QString errorMessage=ERR_ACCESS_DENIED+"|error entering directory";
+		throw errorMessage;
 	}
 	UDSEntry entry;
 	QString perm, owner, group, size, filename;
@@ -214,7 +203,11 @@ void Adb::stat( const KUrl& url )
 			arguments << "shell";
 			arguments << ( "[ -d " + link + " ] && echo -n true" ) ;
 			QByteArray read_stdout, read_stderr;
-			rc=this->exec(arguments, read_stdout, read_stderr);
+			int rc=this->exec(arguments, read_stdout, read_stderr);
+			if(rc != 0) {
+				QString errorMessage=ERR_COULD_NOT_READ+"|error calling adb "+read_stderr;
+				throw errorMessage;
+			}
 			qDebug() << "link: ["+link+"]";
 			qDebug() << "check sagt: " << read_stdout << "\n" << read_stderr;
 			if(read_stdout == "true") {
@@ -226,16 +219,46 @@ void Adb::stat( const KUrl& url )
 			// aufrufen???
 		} else {
 			qDebug() << "regex match failed for >>>"<<lineFull<< "<<<";
-			this->error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for "+lineFull+" [regex match failed]");
-			return;
+			QString errorMessage = ERR_CANNOT_ENTER_DIRECTORY + "|error getting softlink target for "+lineFull+" [regex match failed]";
+			throw errorMessage;
 		}
 	} else {
 		qDebug() << "file";
 		entry.insert ( UDSEntry::UDS_FILE_TYPE, S_IFREG);
 	}
 	entry.insert ( UDSEntry::UDS_ACCESS, S_IRUSR | S_IRGRP | S_IROTH | S_IXUSR | S_IXGRP | S_IXOTH );
-	this->statEntry ( entry );
-	this->finished();
+	return entry;
+}
+
+UDSEntry Adb::getEntry( const KUrl& url )
+{
+	QStringList arguments;
+	arguments << "shell";
+	QString path=this->fillArguments(url.path(), arguments);
+	arguments << "ls";
+	arguments << "-la"; // hidden files
+	arguments << path ; // FIXME: escape ?????
+	QByteArray read_stdout, read_stderr;
+	int rc=this->exec(arguments, read_stdout, read_stderr);
+	qDebug() << "-------------------------- ls -la " << (path+"") << " rc=" << rc << " -------------------";
+	QStringList fileLines = QString(read_stdout).split("\n");
+	QString lineFull=this->removeNewline(fileLines[0]);
+	return this->getEntry(lineFull);
+}
+
+void Adb::stat( const KUrl& url )
+{
+	qDebug() << "Entering function adb::stat(" << url.path() << ")";
+	try {
+		UDSEntry entry=this->getEntry(url);
+		this->statEntry(entry);
+		this->finished();
+	} catch(QString &errorMessage) {
+		qDebug() << "exception: " << errorMessage;
+		QStringList strLines = errorMessage.split("|");
+
+		this->error(strLines[0].toInt(), errorMessage);
+	}
 }
 
 
@@ -439,10 +462,23 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 		arguments << dst.path() ; // FIXME: escape ?????
 		rc=this->exec(arguments, read_stdout, read_stderr);
 		qDebug() << "Adb::copy rc=" << rc << " stdout:" << read_stdout << " stderr:" << read_stderr;
+		if(read_stderr.startsWith("error:")) {
+			this->error(ERR_CONNECTION_BROKEN ,QString()+"error in adb pull rc="+QString::number(rc)+"  "+read_stderr);
+			return;
+		}
 		destination.refresh();
-		if(! destination.exists() && destination.isFile()) {
+		if(! destination.exists() && destination.isFile()) { // keine spinnerein im adb aufgetreten?
 			qDebug() << "adb pull failed to copy file";
 			rc=1;
+		} else { // datum von der alten Date setzen:
+			
+			UDSEntry entry = this->getEntry(src);
+			time_t mtime=entry.numberValue(KIO::UDSEntry::UDS_MODIFICATION_TIME);
+			utimbuf times={time(NULL), mtime};
+			if(utime(dst.path().toStdString().c_str(), &times) != 0) {
+				this->error(ERR_CANNOT_CHMOD,QString("error setting mtime ")+strerror(errno));
+				return;
+			}
 		}
 
 	} else if(src.isLocalFile() && ( dst.protocol() == QLatin1String("adb") ) ) {
