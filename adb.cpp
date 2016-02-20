@@ -473,6 +473,11 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 		} else { // datum von der alten Date setzen:
 			
 			UDSEntry entry = this->getEntry(src);
+			qint64 srcSize = entry.numberValue(KIO::UDSEntry::UDS_SIZE,-1);
+			if(srcSize != destination.size()) {
+				this->error(ERR_CONNECTION_BROKEN, QString("phone filesize check failed: src:")+srcSize+ " dst:" +destination.size());
+				return;
+			}
 			time_t mtime=entry.numberValue(KIO::UDSEntry::UDS_MODIFICATION_TIME);
 			utimbuf times={time(NULL), mtime};
 			if(utime(dst.path().toUtf8().data(), &times) != 0) {
