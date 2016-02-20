@@ -475,8 +475,8 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 			UDSEntry entry = this->getEntry(src);
 			time_t mtime=entry.numberValue(KIO::UDSEntry::UDS_MODIFICATION_TIME);
 			utimbuf times={time(NULL), mtime};
-			if(utime(dst.path().toStdString().c_str(), &times) != 0) {
-				this->error(ERR_CANNOT_CHMOD,QString("error setting mtime ")+strerror(errno));
+			if(utime(dst.path().toUtf8().data(), &times) != 0) {
+				this->error(ERR_CANNOT_CHMOD,QString("error setting mtime ")+strerror(errno)+"["+dst.path().toStdString().c_str()+"]");
 				return;
 			}
 		}
