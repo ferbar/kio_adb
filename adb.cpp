@@ -12,6 +12,8 @@
 #include <QProcess>
 #include <QFileInfo>
 #include <QRegExp>
+#include <QTemporaryFile>
+#include <QDir>
 
 // adb read timeout
 #define ADB_TIMEOUT 120
@@ -471,10 +473,33 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 			return;
 		}
 
+		if(src.path().contains(" ")) {
+			this->error(ERR_COULD_NOT_READ, "Adb::copy adb bug: unable to read files with spaces on device");
+			return;
+		}
+		QString dstFilename=dst.fileName();
+		QString pullFilename=dst.path();
+		bool renameFilename=false;
+		QTemporaryFile tempfile("adb_pull_XXXXXX");
+		if(dst.path().contains(" ")) {
+			// workaround: cd ins verzeichnis und dann adb pull tempfilename
+			if(! QDir::setCurrent(dst.directory() ))  {
+				this->error(ERR_CANNOT_ENTER_DIRECTORY, QString("Adb::copy invalid directory (") + read_stdout + " " + read_stderr + "");
+				return;
+			}
+			arguments.clear();
+			read_stdout="";
+			read_stderr="";
+			tempfile.open();
+			QFileInfo tempfileInfo(tempfile.fileName()); // filename.filename ist path + filename
+			pullFilename=tempfileInfo.fileName(); // das ist nur der filename ...
+			renameFilename=true;
+			destination.setFile(pullFilename);
+		}
 		// TODO: pull -p und dann output für den progress lesen
 		arguments << "pull";
-		arguments << src.path() ; // FIXME: escape ?????
-		arguments << dst.path() ; // FIXME: escape ?????
+		arguments << src.path() ; // FIXME: escape im adb hin (201604)
+		arguments << pullFilename ; // FIXME: escape im adb hin
 		rc=this->exec(arguments, read_stdout, read_stderr);
 		qDebug() << "Adb::copy rc=" << rc << " stdout:" << read_stdout << " stderr:" << read_stderr;
 		if(read_stderr.startsWith("error:")) {
@@ -482,21 +507,31 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 			return;
 		}
 		destination.refresh();
-		if(! destination.exists() && destination.isFile()) { // keine spinnerein im adb aufgetreten?
+		if(! destination.exists() || ! destination.isFile()) { // keine spinnerein im adb aufgetreten?
 			qDebug() << "adb pull failed to copy file";
 			rc=1;
+			kError() << "error copying file " << read_stderr << " " << read_stdout;
+			this->error( KIO::ERR_COULD_NOT_WRITE, src.fileName() + " " + read_stderr);
+			return;
 		} else { // datum von der alten Date setzen:
 			
 			UDSEntry entry = this->getEntry(src);
 			qint64 srcSize = entry.numberValue(KIO::UDSEntry::UDS_SIZE,-1);
 			if(srcSize != destination.size()) {
-				this->error(ERR_CONNECTION_BROKEN, QString("phone filesize check failed: src:")+srcSize+ " dst:" +destination.size());
+				this->error(ERR_CONNECTION_BROKEN, QString("phone filesize check failed: src:")+QString::number(srcSize)+ " dst:" +QString::number(destination.size()));
 				return;
 			}
 			time_t mtime=entry.numberValue(KIO::UDSEntry::UDS_MODIFICATION_TIME);
 			utimbuf times={time(NULL), mtime};
-			if(utime(dst.path().toUtf8().data(), &times) != 0) {
-				this->error(ERR_CANNOT_CHMOD,QString("error setting mtime ")+strerror(errno)+"["+dst.path().toStdString().c_str()+"]");
+			if(utime(pullFilename.toUtf8().data(), &times) != 0) {
+				this->error(ERR_CANNOT_CHMOD,QString("error setting mtime ")+strerror(errno)+"["+pullFilename.toStdString().c_str()+"]");
+				return;
+			}
+		}
+		if(renameFilename) {
+			tempfile.setAutoRemove(false);
+			if(!tempfile.rename(dst.path()) ) {
+				this->error(ERR_CANNOT_CHMOD,QString("error renaming pulled filename ")+tempfile.fileName()+" to "+pullFilename+"");
 				return;
 			}
 		}
