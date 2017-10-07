@@ -1,12 +1,10 @@
 #include "adb.h"
 #undef QT_NO_DEBUG
 #undef KDE_NO_DEBUG_OUTPUT
-#include "kdebug.h"
 #include <string.h>
 #include <errno.h>
-#include <KDebug>
 #undef QT_NO_DEBUG
-#include <kcomponentdata.h>
+//#include <kcomponentdata.h>
 #include <kde_file.h>
 #include <QCoreApplication>
 #include <QProcess>
@@ -14,6 +12,8 @@
 #include <QRegExp>
 #include <QTemporaryFile>
 #include <QDir>
+
+#include "adbdebug.h"
 
 // adb read timeout
 #define ADB_TIMEOUT 120
@@ -43,20 +43,30 @@ kdebugdialog --fullmode
 testen mit: kioclient 'cat' 'Adb:///'
 
 */
-// https://github.com/Arakmar/kio-mtp/blob/safeLock/kio_mtp.cpp
-// QT docu: http://doc.qt.io/qt-4.8/qstringlist.html
+// alt: https://github.com/Arakmar/kio-mtp/blob/safeLock/kio_mtp.cpp
+// alt: QT docu: http://doc.qt.io/qt-4.8/qstringlist.html
+// neu: https://github.com/KDE/kio-gdrive/blob/master/src/kio_gdrive.cpp
 
-extern "C" int KDE_EXPORT kdemain( int argc, char **argv )
+class KIOPluginForMetaData : public QObject
 {
-	kDebug(7000) << "Entering function";
-	KComponentData instance( "kio_Adb" );
-	kWarning(7006) << "test Warning";
-	kError(7000) << "test Error";
-	qDebug() << "test debug ***********************";
+	Q_OBJECT
+	Q_PLUGIN_METADATA(IID "org.kde.kio.slave.adb" FILE "adb.json")
+};
 
-	KGlobal::locale();
+extern "C" int Q_DECL_EXPORT kdemain( int argc, char **argv )
+{
+	QLoggingCategory::setFilterRules(QStringLiteral("kf5.kio.adb = true"));
+
+	qCDebug(ADB) << "Entering function";
+	//KComponentData instance( "kio_Adb" );
+	qCWarning(ADB) << "test Warning";
+	qCCritical(ADB) << "test Critical";
+	// geht nicht: qFatal() << "test Fatal";
+
+	// KGlobal::locale();
 
 	QCoreApplication app( argc, argv );
+	app.setApplicationName(QStringLiteral("kio_adb"));
 
 	if (argc != 4)
 	{
@@ -67,6 +77,8 @@ extern "C" int KDE_EXPORT kdemain( int argc, char **argv )
 
 
 	// TODO: check if \r\n translation is necessary
+	
+	/*
 	QStringList arguments;
 
 	arguments << "eins 1";
@@ -79,8 +91,9 @@ extern "C" int KDE_EXPORT kdemain( int argc, char **argv )
 		        bool rc = myProcess->waitForFinished();
 
 	QString read_stdout = myProcess->readAllStandardOutput();
-	qDebug() << "christest: stdout: rc:"<<rc<<" [" << read_stdout << "]";
+	qCDebug(ADB) << "christest: stdout: rc:"<<rc<<" [" << read_stdout << "]";
 	delete(myProcess);
+	*/
 
 
 	Adb slave( argv[2], argv[3] );
@@ -89,18 +102,18 @@ extern "C" int KDE_EXPORT kdemain( int argc, char **argv )
 }
 
 // kioclient cat 'Adb:///'
-void Adb::get( const KUrl &url )
+void Adb::get( const QUrl &url )
 {
-	qDebug() << "Entering function Adb::get(" << url.path() << ")";
+	qCDebug(ADB) << "Entering function Adb::get(" << url.path() << ")";
 	/*
 	this->mimeType( "text/plain" );
 	QByteArray str( "Adb_world " );
 	str+=" ";
-	str+=url.fileName(); // http://api.kde.org/4.x-api/kdelibs-apidocs/kdecore/html/classKUrl.html
+	str+=url.fileName(); // http://api.kde.org/4.x-api/kdelibs-apidocs/kdecore/html/classQUrl.html
 	str+="\n";
 	this->data( str );
 	this->finished();
-	qDebug() << "Leaving function";
+	qCDebug(ADB) << "Leaving function";
 	*/
 
 	QStringList arguments;
@@ -130,25 +143,25 @@ void Adb::get( const KUrl &url )
 			read_stdout.chop(1);
 		}
 		this->data(read_stdout);
-		qDebug() << "-------------------------- cat " << path << " reading " << read_stdout.size() << "bytes -------------------";
+		qCDebug(ADB) << "-------------------------- cat " << path << " reading " << read_stdout.size() << "bytes -------------------";
 	}
 
 	int ret = myProcess->exitCode();
-	qDebug() << "-------------------------- cat " << path << " rc=" << ret << " -------------------";
+	qCDebug(ADB) << "-------------------------- cat " << path << " rc=" << ret << " -------------------";
 	delete(myProcess);
 	this->finished();
-	qDebug() << "Leaving function";
+	qCDebug(ADB) << "Leaving function";
 }
 
-void Adb::put( const KUrl& url, int, JobFlags flags )
+void Adb::put( const QUrl& url, int, JobFlags flags )
 {
-	qDebug() << "Entering function Adb::put(" << url.fileName() << ",," << flags << ")";
+	qCDebug(ADB) << "Entering function Adb::put(" << url.fileName() << ",," << flags << ")";
 	error ( ERR_UNSUPPORTED_ACTION, "not yet implemented");
 }
 
-void Adb::mimetype( const KUrl& url )
+void Adb::mimetype( const QUrl& url )
 {
-	qDebug() << "Entering function adb::mimetype(" << url.fileName() << ")";
+	qCDebug(ADB) << "Entering function adb::mimetype(" << url.fileName() << ")";
 	error ( ERR_UNSUPPORTED_ACTION, "not yet implemented");
 }
 
@@ -193,7 +206,7 @@ UDSEntry Adb::getEntry(const QString &lineFull) {
 	// entry.insert( KIO::UDSEntry::UDS_GROUP, 1000 );
 	// entry.insert ( UDSEntry::UDS_NAME, QLatin1String ( "Adb:///" ) );
 	if(perm[0] == 'd') {
-		qDebug() << "directory";
+		qCDebug(ADB) << "directory";
 		entry.insert ( UDSEntry::UDS_FILE_TYPE, S_IFDIR );
 		entry.insert ( UDSEntry::UDS_MIME_TYPE, QLatin1String ( "inode/directory" ) );
 		entry.insert ( UDSEntry::UDS_ICON_NAME, QLatin1String ( "drive-removable-media" ) );
@@ -213,29 +226,29 @@ UDSEntry Adb::getEntry(const QString &lineFull) {
 				QString errorMessage=ERR_COULD_NOT_READ+"|error calling adb "+read_stderr;
 				throw errorMessage;
 			}
-			qDebug() << "link: ["+link+"]";
-			qDebug() << "check sagt: " << read_stdout << "\n" << read_stderr;
+			qCDebug(ADB) << "link: ["+link+"]";
+			qCDebug(ADB) << "check sagt: " << read_stdout << "\n" << read_stderr;
 			if(read_stdout == "true") {
-				qDebug() << "softlink isDirectory";
+				qCDebug(ADB) << "softlink isDirectory";
 				entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
 			}
 			// FIXME: sollt ma da 
 			// void SlaveBase::redirection	(	const QUrl & 	_url	)	
 			// aufrufen???
 		} else {
-			qDebug() << "regex match failed for >>>"<<lineFull<< "<<<";
+			qCDebug(ADB) << "regex match failed for >>>"<<lineFull<< "<<<";
 			QString errorMessage = ERR_CANNOT_ENTER_DIRECTORY + "|error getting softlink target for "+lineFull+" [regex match failed]";
 			throw errorMessage;
 		}
 	} else {
-		qDebug() << "file";
+		qCDebug(ADB) << "file";
 		entry.insert ( UDSEntry::UDS_FILE_TYPE, S_IFREG);
 	}
 	entry.insert ( UDSEntry::UDS_ACCESS, S_IRUSR | S_IRGRP | S_IROTH | S_IXUSR | S_IXGRP | S_IXOTH );
 	return entry;
 }
 
-UDSEntry Adb::getEntry( const KUrl& url )
+UDSEntry Adb::getEntry( const QUrl& url )
 {
 	QStringList arguments;
 	arguments << "shell";
@@ -245,21 +258,21 @@ UDSEntry Adb::getEntry( const KUrl& url )
 	arguments << path ; // FIXME: escape ?????
 	QByteArray read_stdout, read_stderr;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
-	qDebug() << "-------------------------- ls -la " << (path+"") << " rc=" << rc << " -------------------";
+	qCDebug(ADB) << "-------------------------- ls -la " << (path+"") << " rc=" << rc << " -------------------";
 	QStringList fileLines = QString(read_stdout).split("\n");
 	QString lineFull=this->removeNewline(fileLines[0]);
 	return this->getEntry(lineFull);
 }
 
-void Adb::stat( const KUrl& url )
+void Adb::stat( const QUrl& url )
 {
-	qDebug() << "Entering function adb::stat(" << url.path() << ")";
+	qCDebug(ADB) << "Entering function adb::stat(" << url.path() << ")";
 	try {
 		UDSEntry entry=this->getEntry(url);
 		this->statEntry(entry);
 		this->finished();
 	} catch(QString &errorMessage) {
-		qDebug() << "exception: " << errorMessage;
+		qCDebug(ADB) << "exception: " << errorMessage;
 		QStringList strLines = errorMessage.split("|");
 
 		this->error(strLines[0].toInt(), errorMessage);
@@ -270,7 +283,7 @@ void Adb::stat( const KUrl& url )
 /*
 void Adb::printError()
 {
-	qDebug() << "Got to printError()";
+	qCDebug(ADB) << "Got to printError()";
 
 	QByteArray byteArray = myProcess->readAllStandardOutput();
 	QByteArray byteArray = myProcess->readAllStandardError();
@@ -291,7 +304,7 @@ void Adb::printError()
 QProcess* Adb::exec(const QStringList &arguments) {
 	QString program = "adb";
 	QProcess *myProcess = new QProcess(this);
-	qDebug() << "Adb::exec " << program << " " << arguments;
+	qCDebug(ADB) << "Adb::exec " << program << " " << arguments;
 	myProcess->start(program, arguments);
 	// connect (myProcess, SIGNAL(readyReadStandardOutput()), this, SLOT(printOutput()));
 	// connect (myProcess, SIGNAL(readyReadStandardError()), this, SLOT(printError()));
@@ -305,13 +318,13 @@ int Adb::exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray 
 	for(int i=0; i < ADB_TIMEOUT; i++) {
 		rc = myProcess->waitForFinished(10000); // 10s timeout
 		if(!rc) {
-			qDebug() << "Adb::exec waiting for adb-timeout ["<<i<<"]";
+			qCDebug(ADB) << "Adb::exec waiting for adb-timeout ["<<i<<"]";
 		} else {
 			break;
 		}
 	}
 	if(!rc) {
-		qDebug() << "Adb::exec error waiting for adb-timeout";
+		qCDebug(ADB) << "Adb::exec error waiting for adb-timeout";
 		read_stderr="error waiting for adb-timeout";
 		delete myProcess;
 		return -1;
@@ -319,10 +332,10 @@ int Adb::exec(const QStringList &arguments, QByteArray &read_stdout, QByteArray 
 	read_stdout = myProcess->readAllStandardOutput();
 	read_stderr = myProcess->readAllStandardError();
 	read_stdout.replace("\r\n","\n");
-	// qDebug() << read_stdout;
-	// qDebug() << read_stderr;
+	// qCDebug(ADB) << read_stdout;
+	// qCDebug(ADB) << read_stderr;
 	int ret = myProcess->exitCode();
-	qDebug() << "Adb::exec rc=" << ret;
+	qCDebug(ADB) << "Adb::exec rc=" << ret;
 	delete myProcess;
 	return ret;
 }
@@ -340,16 +353,16 @@ void Adb::splitLsLine(QString line, QString &perm, QString &owner, QString &grou
 	sdate.append(" ").append(sdate2);
 	struct tm tm;
 	memset(&tm, 0, sizeof(struct tm));
-	strptime(sdate.toAscii(), LS_DATEFORMAT, &tm);
+	strptime(sdate.toLatin1(), LS_DATEFORMAT, &tm);
 	mtime=mktime(&tm);
 	
-	qDebug() << ">>>>>>>>>>>>>" << line << "<<<< perm:[" << perm << "] owner:[" << owner << "] group:[" << group << "]" <<
+	qCDebug(ADB) << ">>>>>>>>>>>>>" << line << "<<<< perm:[" << perm << "] owner:[" << owner << "] group:[" << group << "]" <<
 		" size:[" << size << "] date1:[" << sdate << "] date2:[" << sdate2 << "] mtime:[" << mtime << "] filename:[" << filename << "]";
 }
 
-void Adb::listDir( const KUrl &url )
+void Adb::listDir( const QUrl &url )
 {
-	qDebug() << "Entering function Adb::listDir(" << url.path() << " | " << url.fileName() << ")";
+	qCDebug(ADB) << "Entering function Adb::listDir(" << url.path() << " | " << url.fileName() << ")";
 	// zuerst ein normales LS machen, dann hamma für jede datei den dateinamen
 	QStringList arguments;
 	arguments << "shell";
@@ -359,9 +372,9 @@ void Adb::listDir( const KUrl &url )
 	arguments << path + "/" ; // FIXME: escape ?????
 	QByteArray read_stdout, read_stderr;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
-	qDebug() << "-------------------------- ls -a rc=" << rc << " -------------------";
+	qCDebug(ADB) << "-------------------------- ls -a rc=" << rc << " -------------------";
 	QStringList fileLines = QString(read_stdout).split("\n");
-	qDebug() << "listDir first line: ["<<fileLines[0]<<"]";
+	qCDebug(ADB) << "listDir first line: ["<<fileLines[0]<<"]";
 	if(fileLines[0].trimmed() == opendir_failed || fileLines[0].contains(no_such_file_or_directory)) {
 		this->error(ERR_ACCESS_DENIED, "error entering directory \""+path+"\" "+fileLines[0]);
 		return;
@@ -370,12 +383,12 @@ void Adb::listDir( const KUrl &url )
 	// und jetzt das selbe noch einmal mit ls -la damit ma auch mod ham:
 	arguments.replace(lsOptPos,"-la");
 	rc=this->exec(arguments, read_stdout, read_stderr);
-	qDebug() << read_stdout;
-	qDebug() << "-------------------------- ls -l rc=" << rc << " -------------------";
+	qCDebug(ADB) << read_stdout;
+	qCDebug(ADB) << "-------------------------- ls -l rc=" << rc << " -------------------";
 	QStringList fileLinesFull = QString(read_stdout).split("\n");
 
 	if(fileLines.size() != fileLinesFull.size() ) {
-		qDebug() << "we have a problem now ...";
+		qCDebug(ADB) << "we have a problem now ...";
 		// FIXME: return error
 		this->error(ERR_ACCESS_DENIED, "internal error .... @\""+path+"\"");
 		return;
@@ -401,7 +414,7 @@ void Adb::listDir( const KUrl &url )
 			entry.insert( UDSEntry::UDS_MIME_TYPE, QLatin1String ( "inode/directory" ) );
 			entry.insert( UDSEntry::UDS_FILE_TYPE, S_IFDIR );
 		} else if(perm == "lstat") { // lstat './protect_f' failed: Permission denied  --- softlinks die wir als der aktuelle user nicht anschaun können
-			qDebug() << "lstat error ??? " << perm << "";
+			qCDebug(ADB) << "lstat error ??? " << perm << "";
 			QRegExp linkRegex("lstat '(.*)' failed: Permission denied",Qt::CaseSensitive,QRegExp::RegExp2);
 			if (linkRegex.indexIn(lineFull) > 0) {
 				QStringList list = linkRegex.capturedTexts();
@@ -410,9 +423,10 @@ void Adb::listDir( const KUrl &url )
 				mtime=0;
 				mode=000;
 			} else {
-				qDebug() << "lstat error no regex match";
+				qCDebug(ADB) << "lstat error no regex match";
 			}
 		} else if(perm[0] == 'l' ) { // FIXME: now kio crashes eventually ...
+			// FIXME: this->redirection machen ????
 			QRegExp linkRegex("->\\s*(.*)\\s*$",Qt::CaseSensitive,QRegExp::RegExp2);
 			if (linkRegex.indexIn(lineFull) > 0) {
 				QStringList list = linkRegex.capturedTexts();
@@ -424,14 +438,14 @@ void Adb::listDir( const KUrl &url )
 				arguments << ( "[ -d " + link + " ] && echo -n true" ) ;
 				QByteArray read_stdout, read_stderr;
 				rc=this->exec(arguments, read_stdout, read_stderr);
-				qDebug() << "link ["+link+"] check sagt:\n " << read_stdout << "\n" << read_stderr;
+				qCDebug(ADB) << "link ["+link+"] check sagt:\n " << read_stdout << "\n" << read_stderr;
 				if(read_stdout == "true") {
-					qDebug() << "listDir - symlink is directoy"; // http://api.kde.org/4.x-api/kdelibs-apidocs/kioslave/html/ftp_8cpp_source.html das macht guessed_mume_type
+					qCDebug(ADB) << "listDir - symlink is directoy"; // http://api.kde.org/4.x-api/kdelibs-apidocs/kioslave/html/ftp_8cpp_source.html das macht guessed_mume_type
 					// entry.insert( KIO::UDSEntry::UDS_GUESSED_MIME_TYPE, QString::fromLatin1( "inode/directory" ) );
 					entry.insert( KIO::UDSEntry::UDS_MIME_TYPE, QLatin1String("inode/directory"));
 				}
 			} else {
-				qDebug() << "regex match failed for >>>"<<lineFull<< "<<<";
+				qCDebug(ADB) << "regex match failed for >>>"<<lineFull<< "<<<";
 				this->error(ERR_CANNOT_ENTER_DIRECTORY, "error getting softlink target for \""+lineFull+"\"");
 				return;
 			}
@@ -455,17 +469,17 @@ void Adb::listDir( const KUrl &url )
 	// und am ende noch einmal listEnty mit einem leeren element senden
 	this->listEntry( entry, true );
 	this->finished();
-	qDebug() << "Leaving function listDir()";
+	qCDebug(ADB) << "Leaving function listDir()";
 }
 
-void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
+void Adb::copy(const QUrl& src, const QUrl& dst, int, KIO::JobFlags flags)
 {
 	QStringList arguments;
 	int rc=1;
 	QByteArray read_stdout, read_stderr;
-	if( (src.protocol() == QLatin1String("adb") ) && dst.isLocalFile() ) {
+	if( (src.scheme() == QLatin1String("adb") ) && dst.isLocalFile() ) {
 		// 20160220: adb pull filename "filename with whitespaces" is broken: saves the file to "filename". in the git version from 201507 this has been fixed
-		qDebug() << "entering function Adb::copy from device(" << src.path() << " -> " << dst.path() << ")";
+		qCDebug(ADB) << "entering function Adb::copy from device(" << src.path() << " -> " << dst.path() << ")";
 		QFileInfo destination ( dst.path() );
 		if ( !(flags & KIO::Overwrite) && destination.exists() )
 		{
@@ -483,7 +497,7 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 		QTemporaryFile tempfile("adb_pull_XXXXXX");
 		if(dst.path().contains(" ")) {
 			// workaround: cd ins verzeichnis und dann adb pull tempfilename
-			if(! QDir::setCurrent(dst.directory() ))  {
+			if(! QDir::setCurrent(dst.path() ))  {
 				this->error(ERR_CANNOT_ENTER_DIRECTORY, QString("Adb::copy invalid directory (") + read_stdout + " " + read_stderr + "");
 				return;
 			}
@@ -501,16 +515,16 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 		arguments << src.path() ; // FIXME: escape im adb hin (201604)
 		arguments << pullFilename ; // FIXME: escape im adb hin
 		rc=this->exec(arguments, read_stdout, read_stderr);
-		qDebug() << "Adb::copy rc=" << rc << " stdout:" << read_stdout << " stderr:" << read_stderr;
+		qCDebug(ADB) << "Adb::copy rc=" << rc << " stdout:" << read_stdout << " stderr:" << read_stderr;
 		if(read_stderr.startsWith("error:")) {
 			this->error(ERR_CONNECTION_BROKEN ,QString()+"error in adb pull rc="+QString::number(rc)+"  "+read_stderr);
 			return;
 		}
 		destination.refresh();
 		if(! destination.exists() || ! destination.isFile()) { // keine spinnerein im adb aufgetreten?
-			qDebug() << "adb pull failed to copy file";
+			qCDebug(ADB) << "adb pull failed to copy file";
 			rc=1;
-			kError() << "error copying file " << read_stderr << " " << read_stdout;
+			qCCritical(ADB) << "error copying file " << read_stderr << " " << read_stdout;
 			this->error( KIO::ERR_COULD_NOT_WRITE, src.fileName() + " " + read_stderr);
 			return;
 		} else { // datum von der alten Date setzen:
@@ -536,8 +550,8 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 			}
 		}
 
-	} else if(src.isLocalFile() && ( dst.protocol() == QLatin1String("adb") ) ) {
-		qDebug() << "entering function Adb::copy to device(" << src.path() << " -> " << dst.path() << ")";
+	} else if(src.isLocalFile() && ( dst.scheme() == QLatin1String("adb") ) ) {
+		qCDebug(ADB) << "entering function Adb::copy to device(" << src.path() << " -> " << dst.path() << ")";
 		arguments << "push";
 		arguments << src.path() ; // FIXME: escape ?????
 		arguments << dst.path() ; // FIXME: escape ?????
@@ -547,7 +561,7 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 		 return;
 	}
 	if(rc != 0) {
-		kError() << "error copying file";
+		qCCritical(ADB) << "error copying file";
 		// /usr/include/kio/global.h
 		// this->error(ERR_COULD_NOT_COPY, src.path());
 		this->error( KIO::ERR_COULD_NOT_WRITE, src.fileName() + " " + read_stderr);
@@ -559,28 +573,28 @@ void Adb::copy(const KUrl& src, const KUrl& dst, int, KIO::JobFlags flags)
 
 void Adb::special(QByteArray const&data)
 {
-	qDebug() << "entering function Adb::special()";
+	qCDebug(ADB) << "entering function Adb::special()";
 	Q_UNUSED(data);
 }
 
-void Adb::mkdir(KUrl const&url, int)
+void Adb::mkdir(QUrl const&url, int)
 {
-	qDebug() << "entering function Adb::mkdir()";
+	qCCritical(ADB) << "entering function Adb::mkdir()";
 	error ( ERR_UNSUPPORTED_ACTION, url.path() );
 	// error ( ERR_COULD_NOT_MKDIR, url.path() );
 }
 
-void Adb::del(KUrl const& file, bool)
+void Adb::del(QUrl const& file, bool)
 {
-	qDebug() << "entering function Adb::del()";
-	if(file.protocol() != QLatin1String("adb") ) {
-		qDebug() << " Adb::del invalid protocol";
+	qCDebug(ADB) << "entering function Adb::del()";
+	if(file.scheme() != QLatin1String("adb") ) {
+		qCDebug(ADB) << " Adb::del invalid protocol";
 		this->error(ERR_UNSUPPORTED_PROTOCOL,"Adb::del invalid protocol");
 		return;
 	}
 
 	if(file.path().startsWith("/su")) {
-		qDebug() << " Adb::del don't delete files in su mode!";
+		qCDebug(ADB) << " Adb::del don't delete files in su mode!";
 		this->error(ERR_ACCESS_DENIED,"don't delete files in su mode!");
 		return;
 	}
@@ -592,7 +606,7 @@ void Adb::del(KUrl const& file, bool)
 	arguments << path ; // FIXME: escape ?????
 	arguments << "|| echo error";
 	QByteArray read_stdout, read_stderr;
-	qDebug() << "Adb::del command: " << arguments;
+	qCDebug(ADB) << "Adb::del command: " << arguments;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
 	if(rc != 0 || read_stdout.trimmed() != "") {
 		this->error(ERR_WRITE_ACCESS_DENIED , QString("rc:")+rc+" "+read_stdout.trimmed());
@@ -601,9 +615,9 @@ void Adb::del(KUrl const& file, bool)
 	}
 }
 
-void Adb::rename(KUrl const& src, KUrl const&, QFlags<KIO::JobFlag>)
+void Adb::rename(QUrl const& src, QUrl const&, QFlags<KIO::JobFlag>)
 {
-	qDebug() << "entering function Adb::rename()";
+	qCDebug(ADB) << "entering function Adb::rename()";
 	error ( ERR_UNSUPPORTED_ACTION, src.path() );
 }
 
@@ -611,10 +625,12 @@ void Adb::rename(KUrl const& src, KUrl const&, QFlags<KIO::JobFlag>)
 Adb::Adb( const QByteArray &pool, const QByteArray &app )
 	: SlaveBase( "Adb", pool, app )
 {
-	qDebug() << "Adb::Adb()";
+	qCDebug(ADB) << "Adb::Adb()";
 }
 
 Adb::~Adb()
 {
-	qDebug() << "Adb::~Adb()";
+	qCDebug(ADB) << "Adb::~Adb()";
 }
+
+#include "adb.moc"

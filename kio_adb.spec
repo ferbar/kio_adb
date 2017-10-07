@@ -6,7 +6,7 @@
 #
 
 Name:		kio_adb
-Version:	0.1
+Version:	0.2
 Release:	1
 License:	GPL 3
 Summary:	kio-slave adb

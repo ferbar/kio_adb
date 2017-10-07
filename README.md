@@ -23,3 +23,8 @@ use dolphin to copy files from and to your android phone using the android debug
 * delete, mkdir, rename
 * Kaffeine support
 * root explorer
+
+## TESTING
+
+ kdeinit5 # or just re-login
+ kioclient5 exec gdrive:/

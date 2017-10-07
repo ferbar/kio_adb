@@ -1,19 +1,29 @@
+.PHONY: clean build
 
-all: /usr/local/lib64/kde4/kio_adb.so /usr/local/share/kde4/services/adb.protocol
+all: kde5
+
+kde4: /usr/local/lib64/kde4/kio_adb.so /usr/local/share/kde4/services/adb.protocol
 	sudo mv /usr/local/lib64/kde4/kio_adb.so /usr/lib64/kde4/kio_adb.so
 	sudo mv /usr/local/share/kde4/services/adb.protocol /usr/share/kde4/services/adb.protocol
 
-/usr/local/lib64/kde4/kio_adb.so: build adb.cpp adb.h
+/usr/local/lib64/kde4/kio_adb.so: build src/adb.cpp src/adb.h
 	cd build && make && sudo make install
 
-uninstall:
+kde5: /usr/local/lib64/plugins/kf5/kio/adb.so
+	sudo mv /usr/local/lib64/plugins/kf5/kio/adb.so /usr/lib64/qt5/plugins/kf5/kio/
+
+/usr/local/lib64/plugins/kf5/kio/adb.so: build src/adb.cpp src/adb.h
+	cd build && make && sudo make install
+
+
+uninstall_kde4:
 	sudo rm /usr/lib64/kde4/kio_adb.so /usr/share/kde4/services/adb.protocol
 
 clean:
 	rm -r build
 
 build:
-	mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=debugfull ..
+	mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=debugfull ..
 
 version=0.1
 release=1

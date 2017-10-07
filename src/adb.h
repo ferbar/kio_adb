@@ -21,7 +21,7 @@ class Adb : public QObject, public KIO::SlaveBase
 		QString fillArguments(QString fullPath, QStringList &arguments);
 		QString removeNewline(QString &line);
 
-		UDSEntry getEntry( const KUrl& url );
+		UDSEntry getEntry( const QUrl& url );
 		UDSEntry getEntry( const QString& fullLine );
 
 	public:
@@ -29,15 +29,18 @@ class Adb : public QObject, public KIO::SlaveBase
 		virtual ~Adb();
 
 		virtual void special ( const QByteArray& data );
-		virtual void listDir ( const KUrl& url );
-		virtual void stat ( const KUrl& url );
-		virtual void mimetype ( const KUrl& url );
-		virtual void get ( const KUrl& url );
-		virtual void put ( const KUrl& url, int, JobFlags flags );
-		virtual void copy ( const KUrl& src, const KUrl& dest, int, JobFlags flags );
-		virtual void mkdir ( const KUrl& url, int );
-		virtual void del ( const KUrl& url, bool );
-		virtual void rename ( const KUrl& src, const KUrl& dest, JobFlags flags );
+		virtual void listDir ( const QUrl& url );
+		virtual void stat ( const QUrl& url );
+		virtual void mimetype ( const QUrl& url );
+		virtual void get ( const QUrl& url );
+		virtual void put ( const QUrl& url, int, JobFlags flags );
+		virtual void copy ( const QUrl& src, const QUrl& dest, int, JobFlags flags );
+		virtual void mkdir ( const QUrl& url, int );
+		virtual void del ( const QUrl& url, bool );
+		virtual void rename ( const QUrl& src, const QUrl& dest, JobFlags flags );
+
+		void error(int _errid, const char *text) { this->error(_errid, QString(text)); };
+		void error(int _errid, const QString &text) { this->error(_errid, text); };
 };
  
 #endif
