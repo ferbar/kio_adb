@@ -28,3 +28,11 @@ use dolphin to copy files from and to your android phone using the android debug
 
  kdeinit5 # or just re-login
  kioclient5 exec gdrive:/
+
+## KNOWN BUGS
+
+* idiotic adb seems to delete spaces in command args
+  '  ' => ' '
+  Filenames containing two spaces are not handled correct
+* missing copy/move directory
+* missing rm directory

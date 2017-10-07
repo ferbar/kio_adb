@@ -6,6 +6,7 @@
 #undef QT_NO_DEBUG
 //#include <kcomponentdata.h>
 #include <kde_file.h>
+#include <kshell.h>
 #include <QCoreApplication>
 #include <QProcess>
 #include <QFileInfo>
@@ -122,8 +123,7 @@ void Adb::get( const QUrl &url )
 	QString path=this->fillArguments(url.path(), arguments);
 	// 20160219: beim adb shell werden alle \n (und nur das \n) in \r\n umgewandelt -> binary files hin, replace \r\n -> \n funktioniert!
 	// siehe: https://code.google.com/p/android/issues/detail?id=2482
-	arguments << "cat";
-	arguments << path ; // FIXME: escape ?????
+	arguments << "cat " << KShell::quoteArg(path);
 	QProcess *myProcess=this->exec(arguments);
 	// connect(myProcess, SIGNAL(readyReadStandardOutput()), this, SLOT(processOutput()));  // connect process signals with your code
 	// connect(myProcess, SIGNAL(readyReadStandardError()), this, SLOT(processOutput()));  // same here
@@ -253,12 +253,11 @@ UDSEntry Adb::getEntry( const QUrl& url )
 	QStringList arguments;
 	arguments << "shell";
 	QString path=this->fillArguments(url.path(), arguments);
-	arguments << "ls";
-	arguments << "-la"; // hidden files
-	arguments << path ; // FIXME: escape ?????
+	arguments << "ls -la " // hidden files
+	  + KShell::quoteArg(path) ;
 	QByteArray read_stdout, read_stderr;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
-	qCDebug(ADB) << "-------------------------- ls -la " << (path+"") << " rc=" << rc << " -------------------";
+	qCDebug(ADB) << "getEntry:-------------------------- " << arguments << " rc=" << rc << " -------------------";
 	QStringList fileLines = QString(read_stdout).split("\n");
 	QString lineFull=this->removeNewline(fileLines[0]);
 	return this->getEntry(lineFull);
@@ -348,7 +347,10 @@ void Adb::splitLsLine(QString line, QString &perm, QString &owner, QString &grou
 	if(perm[0] == '-') { // dir oder link ham keine size!
 		stream >> size;
 	}
-	stream >> sdate >> sdate2 >> filename;
+	stream >> sdate >> sdate2;
+	// der rest ist der dateiname:
+	stream.skipWhiteSpace();
+	filename = stream.readAll();
 
 	sdate.append(" ").append(sdate2);
 	struct tm tm;
@@ -367,12 +369,13 @@ void Adb::listDir( const QUrl &url )
 	QStringList arguments;
 	arguments << "shell";
 	QString path=this->fillArguments(url.path(), arguments);
-	arguments << "ls";
-	arguments << "-a"; int lsOptPos=arguments.count() -1;  // hidden files
-	arguments << path + "/" ; // FIXME: escape ?????
+	int lsOptPos=arguments.count();
+	// list hidden files
+	arguments << "ls -a " + KShell::quoteArg(path + "/");
 	QByteArray read_stdout, read_stderr;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
-	qCDebug(ADB) << "-------------------------- ls -a rc=" << rc << " -------------------";
+	qCDebug(ADB) << "-------------------------- " << arguments << " rc=" << rc << " -------------------";
+	qCDebug(ADB) << read_stdout;
 	QStringList fileLines = QString(read_stdout).split("\n");
 	qCDebug(ADB) << "listDir first line: ["<<fileLines[0]<<"]";
 	if(fileLines[0].trimmed() == opendir_failed || fileLines[0].contains(no_such_file_or_directory)) {
@@ -381,15 +384,14 @@ void Adb::listDir( const QUrl &url )
 	}
 	
 	// und jetzt das selbe noch einmal mit ls -la damit ma auch mod ham:
-	arguments.replace(lsOptPos,"-la");
+	arguments.replace(lsOptPos, "ls -la " + KShell::quoteArg(path + "/"));
 	rc=this->exec(arguments, read_stdout, read_stderr);
+	qCDebug(ADB) << "-----------"<<lsOptPos<<"--------------- " << arguments << " rc=" << rc << " -------------------";
 	qCDebug(ADB) << read_stdout;
-	qCDebug(ADB) << "-------------------------- ls -l rc=" << rc << " -------------------";
 	QStringList fileLinesFull = QString(read_stdout).split("\n");
 
 	if(fileLines.size() != fileLinesFull.size() ) {
-		qCDebug(ADB) << "we have a problem now ...";
-		// FIXME: return error
+		qCDebug(ADB) << "Error: fileLines.size() != fileLinesFull.size(): " << fileLines.size() << "!=" << fileLinesFull.size() ;
 		this->error(ERR_ACCESS_DENIED, "internal error .... @\""+path+"\"");
 		return;
 	}
@@ -462,18 +464,21 @@ void Adb::listDir( const QUrl &url )
 		entry.insert( KIO::UDSEntry::UDS_USER, 1000 );
 		entry.insert( KIO::UDSEntry::UDS_GROUP, 1000 );
 
-		this->listEntry( entry, false );
+		// kde 4.x:
+		//this->listEntry( entry, false );
+		this->listEntry( entry );
 		entry.clear();
 	}
 
-	// und am ende noch einmal listEnty mit einem leeren element senden
-	this->listEntry( entry, true );
+	// KDE 4.x: und am ende noch einmal listEnty mit einem leeren element senden
+	//this->listEntry( entry, true );
 	this->finished();
 	qCDebug(ADB) << "Leaving function listDir()";
 }
 
 void Adb::copy(const QUrl& src, const QUrl& dst, int, KIO::JobFlags flags)
 {
+	qCDebug(ADB) << "Entering function Adb::copy " << src << " -> " << dst;
 	QStringList arguments;
 	int rc=1;
 	QByteArray read_stdout, read_stderr;
@@ -511,9 +516,9 @@ void Adb::copy(const QUrl& src, const QUrl& dst, int, KIO::JobFlags flags)
 			destination.setFile(pullFilename);
 		}
 		// TODO: pull -p und dann output für den progress lesen
-		arguments << "pull";
-		arguments << src.path() ; // FIXME: escape im adb hin (201604)
-		arguments << pullFilename ; // FIXME: escape im adb hin
+		arguments << "pull " << KShell::quoteArg(src.path()) << " " << KShell::quoteArg(pullFilename);
+		// arguments << src.path() ; // FIXME: escape im adb hin (201604)
+		// 20171007: escapen scheint zu gehn!!
 		rc=this->exec(arguments, read_stdout, read_stderr);
 		qCDebug(ADB) << "Adb::copy rc=" << rc << " stdout:" << read_stdout << " stderr:" << read_stderr;
 		if(read_stderr.startsWith("error:")) {
@@ -602,9 +607,7 @@ void Adb::del(QUrl const& file, bool)
 	QStringList arguments;
 	arguments << "shell";
 	QString path=this->fillArguments(file.path(), arguments);
-	arguments << "rm";
-	arguments << path ; // FIXME: escape ?????
-	arguments << "|| echo error";
+	arguments << "rm " << KShell::quoteArg(path) << "|| echo error";
 	QByteArray read_stdout, read_stderr;
 	qCDebug(ADB) << "Adb::del command: " << arguments;
 	int rc=this->exec(arguments, read_stdout, read_stderr);
